@@ -6,19 +6,18 @@ use crossterm::{
 use ratatui::{
     backend::CrosstermBackend,
     prelude::*,
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph, StatefulWidget},
+    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
     Terminal,
 };
-use regex;
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
     io::{self, Read},
     time::Duration,
 };
-use unicode_normalization::UnicodeNormalization;
+
 struct App {
-    word: Vec<Word>,
+    items: Vec<Word>,
     state: ListState,
 }
 impl App {
@@ -28,9 +27,36 @@ impl App {
             .unwrap()
             .read_to_string(&mut raw)
             .unwrap();
-        let word: Vec<Word> = serde_json::from_str(&raw).unwrap();
+        let items: Vec<Word> = serde_json::from_str(&raw).unwrap();
         let state = ListState::default();
-        Self { word, state }
+        Self { items, state }
+    }
+    fn next(&mut self) {
+        let i = match self.state.selected() {
+            Some(i) => {
+                if i >= self.items.len() - 1 {
+                    0
+                } else {
+                    i + 1
+                }
+            }
+            None => 0,
+        };
+        self.state.select(Some(i));
+    }
+
+    fn previous(&mut self) {
+        let i = match self.state.selected() {
+            Some(i) => {
+                if i == 0 {
+                    self.items.len() - 1
+                } else {
+                    i - 1
+                }
+            }
+            None => 0,
+        };
+        self.state.select(Some(i));
     }
 }
 #[derive(Deserialize, Serialize, Debug, Default)]
@@ -55,12 +81,8 @@ fn main() -> Result<(), io::Error> {
         if event::poll(Duration::from_millis(1000))? {
             if let Event::Key(key) = event::read()? {
                 match key.code {
-                    KeyCode::Up => app
-                        .state
-                        .select(Some(app.state.selected().unwrap_or_default() - 1)),
-                    KeyCode::Down => app
-                        .state
-                        .select(Some(app.state.selected().unwrap_or_default() + 1)),
+                    KeyCode::Up => app.previous(),
+                    KeyCode::Down => app.next(),
                     KeyCode::Char('q') => break,
                     _ => (),
                 }
@@ -80,12 +102,12 @@ fn main() -> Result<(), io::Error> {
 }
 
 fn ui<B: Backend>(f: &mut Frame<B>, app: &mut App) {
-    let chunks = Layout::default()
+    let main_chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Length(6), Constraint::Ratio(1, 1)].as_ref())
         .split(f.size());
     let items: Vec<ListItem> = app
-        .word
+        .items
         .iter()
         .map(|word| ListItem::new(Line::from(word.word.as_str())))
         .collect();
@@ -97,7 +119,7 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &mut App) {
                 .add_modifier(Modifier::BOLD),
         )
         .highlight_symbol("> ");
-    let select = &app.word[app.state.selected().unwrap_or_default()];
+    let select = &app.items[app.state.selected().unwrap_or_default()];
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints(Vec::from([
@@ -105,7 +127,7 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &mut App) {
             Constraint::Length(4),
             Constraint::Ratio(1, 1),
         ]))
-        .split(chunks[1]);
+        .split(main_chunks[1]);
     let layout_min = Layout::default()
         .direction(Direction::Horizontal)
         .constraints(Vec::from([
@@ -151,5 +173,5 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &mut App) {
             .block(Block::default().title("更多").borders(Borders::ALL)),
         layout[2],
     );
-    f.render_stateful_widget(list, chunks[0], &mut app.state);
+    f.render_stateful_widget(list, main_chunks[0], &mut app.state);
 }
